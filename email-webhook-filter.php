@@ -164,26 +164,22 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
             return wp_parse_args( is_array( $saved ) ? $saved : array(), $defaults );
         }
 
-        /**
-         * Validate if email subject matches expected subject.
-         *
-         * @param string $subject Subject line.
-         * @return bool
-         */
-        private function is_email( $subject ) {
-            return $subject;
-        }
+		private function matches_patterns( $subject, $body, $patterns_raw ) {
+			$patterns = preg_split( '/\r\n|\r|\n/', $patterns_raw );
 
-        /**
-         * Extract first six-digit code from email body.
-         *
-         * @param string $body Email body.
-         * @return string
-         */
-        private function extract_six_digit_code( $body ) {
-            preg_match_all( '/\b\d{6}\b/', $body, $matches );
-            return isset( $matches[0][0] ) ? $matches[0][0] : '';
-        }
+			foreach ( $patterns as $pattern ) {
+				$pattern = trim( $pattern );
+				if ( '' === $pattern || ! $this->is_valid_regexp( $pattern ) ) {
+					continue;
+				}
+
+				if ( preg_match( $pattern, $subject ) || preg_match( $pattern, $body ) ) {
+					return true;
+				}
+			}
+
+			return false;
+		}
 
         /**
          * Send webhook payload.
@@ -238,21 +234,18 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
             // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
             $body_content = isset( $phpmailer->Body ) ? $phpmailer->Body : '';
 
-            if ( ! $this->is_email( $subject_line ) ) {
-                return;
-            }
+			$patterns_raw = isset( $settings['triggering_patterns'] ) ? $settings['triggering_patterns'] : '';
 
-            $code = $this->extract_six_digit_code( $body_content );
-            if ( empty( $code ) ) {
-                return;
-            }
+			if ( ! $this->matches_patterns( $subject_line, $body_content, $patterns_raw ) ) {
+				return;
+			}
 
-            $payload = array(
-                'subject' => $subject_line,
-                'code'    => $code,
-            );
+			$payload = array(
+				'subject' => $subject_line,
+				'body'    => $body_content,
+			);
 
-            $this->send_webhook( $payload, $settings );
+			$this->send_webhook( $payload, $settings );
         }
 
         /**
