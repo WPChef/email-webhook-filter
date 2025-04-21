@@ -5,7 +5,7 @@
  * Author: Limit Login Attempts Reloaded
  * Author URI: https://www.limitloginattempts.com/
  * Text Domain: email-webhook-filter
- * Version: 1.0.1
+ * Version: 1.0.0
  *
  * @package Email_Webhook_Filter
  */
