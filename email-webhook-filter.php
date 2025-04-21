@@ -34,13 +34,15 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
          * Add plugin settings page.
          */
         public function add_plugin_menu() {
-            add_options_page(
-                __( 'Email Webhook Filter Settings', 'email-webhook-filter' ),
-                __( 'Email Webhook Filter', 'email-webhook-filter' ),
-                'manage_options',
-                'email-webhook-filter',
-                array( $this, 'render_settings_page' )
-            );
+			if ( current_user_can( 'manage_options' ) ) {
+				add_options_page(
+					__( 'Email Webhook Filter Settings', 'email-webhook-filter' ),
+					__( 'Email Webhook Filter', 'email-webhook-filter' ),
+					'manage_options',
+					'email-webhook-filter',
+					array( $this, 'render_settings_page' )
+				);
+			}
         }
 
         /**
