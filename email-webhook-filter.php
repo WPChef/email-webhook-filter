@@ -1,260 +1,322 @@
 <?php
-/*
-Plugin Name: Email Webhook Filter
-Description: Sends email details as a JSON payload via a webhook if email subject or body matches specified regexp patterns.
-Author: Limit Login Attempts Reloaded
-Author URI: https://www.limitloginattempts.com/
-Text Domain: email-webhook-filter
-Version: 1.0.0
-*/
+/**
+ * Plugin Name: Email Webhook Filter
+ * Description: Sends email details as a JSON payload via a webhook if email subject or body matches specified regexp patterns.
+ * Author: Limit Login Attempts Reloaded
+ * Author URI: https://www.limitloginattempts.com/
+ * Text Domain: email-webhook-filter
+ * Version: 1.0.1
+ *
+ * @package Email_Webhook_Filter
+ */
 
 if ( ! defined( 'ABSPATH' ) ) {
-    exit; // Exit if accessed directly.
+    exit;
 }
 
-class Email_Webhook_Filter {
-
-    public function __construct() {
-        // Create settings page.
-        add_action( 'admin_menu', array( $this, 'add_plugin_menu' ) );
-        add_action( 'admin_init', array( $this, 'register_settings' ) );
-
-        // Hook into the email sending process.
-        add_action( 'phpmailer_init', array( $this, 'check_email_and_trigger_webhook' ) );
-    }
+if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
 
     /**
-     * Add the settings page to the WordPress admin menu.
+     * Main plugin class.
      */
-    public function add_plugin_menu() {
-        add_options_page(
-            'Email Webhook Filter Settings',
-            'Email Webhook Filter',
-            'manage_options',
-            'email-webhook-filter',
-            array( $this, 'settings_page' )
-        );
-    }
+    class Email_Webhook_Filter {
 
-    /**
-     * Register the plugin settings and settings fields.
-     */
-    public function register_settings() {
-        register_setting( 'email_webhook_filter_settings_group', 'email_webhook_filter_settings', array( $this, 'sanitize_settings' ) );
-
-        add_settings_section(
-            'email_webhook_filter_main_section',
-            'Main Settings',
-            null,
-            'email-webhook-filter'
-        );
-
-        add_settings_field(
-            'webhook_url',
-            'Webhook URL',
-            array( $this, 'webhook_url_callback' ),
-            'email-webhook-filter',
-            'email_webhook_filter_main_section'
-        );
-
-        add_settings_field(
-            'triggering_patterns',
-            'Triggering Patterns',
-            array( $this, 'triggering_patterns_callback' ),
-            'email-webhook-filter',
-            'email_webhook_filter_main_section'
-        );
-
-        add_settings_field(
-            'auth_type',
-            'Authentication Type',
-            array( $this, 'auth_type_callback' ),
-            'email-webhook-filter',
-            'email_webhook_filter_main_section'
-        );
-
-        add_settings_field(
-            'security_key',
-            'Security Key',
-            array( $this, 'security_key_callback' ),
-            'email-webhook-filter',
-            'email_webhook_filter_main_section'
-        );
-    }
-
-    /**
-     * Sanitize settings input.
-     */
-    public function sanitize_settings( $input ) {
-        $sanitized = array();
-
-        if ( isset( $input['webhook_url'] ) ) {
-            $sanitized['webhook_url'] = esc_url_raw( $input['webhook_url'] );
+        /**
+         * Constructor.
+         */
+        public function __construct() {
+            add_action( 'admin_menu', array( $this, 'add_plugin_menu' ) );
+            add_action( 'admin_init', array( $this, 'register_settings' ) );
+            add_action( 'phpmailer_init', array( $this, 'check_email_and_trigger_webhook' ) );
         }
 
-        if ( isset( $input['triggering_patterns'] ) ) {
-            $sanitized['triggering_patterns'] = sanitize_textarea_field( $input['triggering_patterns'] );
+        /**
+         * Add plugin settings page.
+         */
+        public function add_plugin_menu() {
+            add_options_page(
+                __( 'Email Webhook Filter Settings', 'email-webhook-filter' ),
+                __( 'Email Webhook Filter', 'email-webhook-filter' ),
+                'manage_options',
+                'email-webhook-filter',
+                array( $this, 'render_settings_page' )
+            );
         }
 
-        if ( isset( $input['auth_type'] ) && in_array( $input['auth_type'], array( 'header', 'body' ), true ) ) {
-            $sanitized['auth_type'] = $input['auth_type'];
-        } else {
-            $sanitized['auth_type'] = 'header';
+        /**
+         * Register plugin settings.
+         */
+        public function register_settings() {
+            register_setting(
+                'email_webhook_filter_settings_group',
+                'email_webhook_filter_settings',
+                array( $this, 'sanitize_settings' )
+            );
+
+            add_settings_section(
+                'email_webhook_filter_main_section',
+                __( 'Main Settings', 'email-webhook-filter' ),
+                '__return_false',
+                'email-webhook-filter'
+            );
+
+            add_settings_field(
+                'webhook_url',
+                __( 'Webhook URL', 'email-webhook-filter' ),
+                array( $this, 'webhook_url_field' ),
+                'email-webhook-filter',
+                'email_webhook_filter_main_section'
+            );
+
+            add_settings_field(
+                'triggering_patterns',
+                __( 'Triggering Patterns', 'email-webhook-filter' ),
+                array( $this, 'triggering_patterns_field' ),
+                'email-webhook-filter',
+                'email_webhook_filter_main_section'
+            );
+
+            add_settings_field(
+                'auth_type',
+                __( 'Authentication Type', 'email-webhook-filter' ),
+                array( $this, 'auth_type_field' ),
+                'email-webhook-filter',
+                'email_webhook_filter_main_section'
+            );
+
+            add_settings_field(
+                'security_key',
+                __( 'Security Key', 'email-webhook-filter' ),
+                array( $this, 'security_key_field' ),
+                'email-webhook-filter',
+                'email_webhook_filter_main_section'
+            );
         }
 
-        if ( isset( $input['auth_field'] ) ) {
-            $sanitized['auth_field'] = sanitize_text_field( $input['auth_field'] );
-        }
+        /**
+         * Sanitize settings.
+         *
+         * @param array $input Input settings.
+         * @return array
+         */
+        public function sanitize_settings( $input ) {
+            $sanitized = array();
 
-        if ( isset( $input['security_key'] ) ) {
-            $sanitized['security_key'] = sanitize_text_field( $input['security_key'] );
-        }
-
-        return $sanitized;
-    }
-
-    /**
-     * Callback for the Webhook URL field.
-     */
-    public function webhook_url_callback() {
-        $options = get_option( 'email_webhook_filter_settings' );
-        $webhook_url = isset( $options['webhook_url'] ) ? $options['webhook_url'] : '';
-        echo '<input type="text" name="email_webhook_filter_settings[webhook_url]" value="' . esc_attr( $webhook_url ) . '" class="regular-text" />';
-    }
-
-    /**
-     * Callback for the Triggering Patterns field.
-     */
-    public function triggering_patterns_callback() {
-        $options = get_option( 'email_webhook_filter_settings' );
-        $patterns = isset( $options['triggering_patterns'] ) ? $options['triggering_patterns'] : '';
-        echo '<textarea name="email_webhook_filter_settings[triggering_patterns]" rows="5" cols="50">' . esc_textarea( $patterns ) . '</textarea>';
-        echo '<p class="description">Enter one regexp per line.</p>';
-    }
-
-    /**
-     * Callback for the Authentication Type field and adjacent field for the key’s field name.
-     */
-    public function auth_type_callback() {
-        $options = get_option( 'email_webhook_filter_settings' );
-        $auth_type = isset( $options['auth_type'] ) ? $options['auth_type'] : 'header';
-        $auth_field = isset( $options['auth_field'] ) ? $options['auth_field'] : '';
-        ?>
-        <select name="email_webhook_filter_settings[auth_type]">
-            <option value="header" <?php selected( $auth_type, 'header' ); ?>>Header</option>
-            <option value="body" <?php selected( $auth_type, 'body' ); ?>>Request Body (JSON)</option>
-        </select>
-        &nbsp;
-        <input type="text" name="email_webhook_filter_settings[auth_field]" value="<?php echo esc_attr( $auth_field ); ?>" placeholder="Field Name" />
-        <?php
-    }
-
-    /**
-     * Callback for the Security Key field.
-     */
-    public function security_key_callback() {
-        $options = get_option( 'email_webhook_filter_settings' );
-        $security_key = isset( $options['security_key'] ) ? $options['security_key'] : '';
-        echo '<input type="text" name="email_webhook_filter_settings[security_key]" value="' . esc_attr( $security_key ) . '" class="regular-text" />';
-    }
-
-    /**
-     * Output the settings page HTML.
-     */
-    public function settings_page() {
-        ?>
-        <div class="wrap">
-            <h1>Email Webhook Filter Settings</h1>
-            <form method="post" action="options.php">
-                <?php settings_fields( 'email_webhook_filter_settings_group' ); ?>
-                <?php do_settings_sections( 'email-webhook-filter' ); ?>
-                <?php submit_button(); ?>
-            </form>
-        </div>
-        <?php
-    }
-
-    /**
-     * Hook into PHPMailer to check email content and trigger the webhook if needed.
-     *
-     * @param PHPMailer $phpmailer The PHPMailer instance.
-     */
-    public function check_email_and_trigger_webhook( $phpmailer ) {
-        // Retrieve the saved settings.
-        $settings = get_option( 'email_webhook_filter_settings' );
-        if ( empty( $settings ) ) {
-            return;
-        }
-
-        $webhook_url       = isset( $settings['webhook_url'] ) ? $settings['webhook_url'] : '';
-        $triggering_str    = isset( $settings['triggering_patterns'] ) ? $settings['triggering_patterns'] : '';
-        $auth_type         = isset( $settings['auth_type'] ) ? $settings['auth_type'] : 'header';
-        $auth_field        = isset( $settings['auth_field'] ) ? $settings['auth_field'] : '';
-        $security_key      = isset( $settings['security_key'] ) ? $settings['security_key'] : '';
-
-        // If no webhook URL or no triggering patterns are set, do nothing.
-        if ( empty( $webhook_url ) || empty( $triggering_str ) ) {
-            return;
-        }
-
-        // Get email subject and body.
-        $subject = isset( $phpmailer->Subject ) ? $phpmailer->Subject : '';
-        $body    = isset( $phpmailer->Body ) ? $phpmailer->Body : '';
-
-        // Split patterns on new lines.
-        $patterns = preg_split( '/\r\n|\r|\n/', $triggering_str );
-        $matched  = false;
-
-        if ( is_array( $patterns ) ) {
-            foreach ( $patterns as $pattern ) {
-                $pattern = trim( $pattern );
-                if ( empty( $pattern ) ) {
-                    continue;
-                }
-                // Use error suppression (@) in case an invalid regexp is provided.
-                if ( @preg_match( $pattern, $subject ) || @preg_match( $pattern, $body ) ) {
-                    $matched = true;
-                    break;
-                }
+            if ( isset( $input['webhook_url'] ) && ! empty( $input['webhook_url'] ) ) {
+                $sanitized['webhook_url'] = esc_url_raw( $input['webhook_url'] );
             }
+
+            if ( isset( $input['triggering_patterns'] ) ) {
+                $lines = preg_split( '/\r\n|\r|\n/', $input['triggering_patterns'] );
+                $valid = array();
+
+                foreach ( $lines as $line ) {
+                    $line = trim( $line );
+                    if ( '' === $line ) {
+                        continue;
+                    }
+                    if ( $this->is_valid_regexp( $line ) ) {
+                        $valid[] = $line;
+                    }
+                }
+                $sanitized['triggering_patterns'] = implode( PHP_EOL, $valid );
+            }
+
+            $sanitized['auth_type'] = ( isset( $input['auth_type'] ) && in_array( $input['auth_type'], array( 'header', 'body' ), true ) ) ? $input['auth_type'] : 'header';
+
+            if ( isset( $input['auth_field'] ) ) {
+                $sanitized['auth_field'] = sanitize_text_field( $input['auth_field'] );
+            }
+
+            if ( isset( $input['security_key'] ) ) {
+                $sanitized['security_key'] = sanitize_text_field( $input['security_key'] );
+            }
+
+            return $sanitized;
         }
 
-        // If none of the patterns match, exit.
-        if ( ! $matched ) {
-            return;
+        /**
+         * Validate a regular expression.
+         *
+         * @param string $pattern Regexp to test.
+         * @return bool
+         */
+		private function is_valid_regexp( $pattern ) {
+			preg_match( $pattern, '' );
+			return PREG_NO_ERROR === preg_last_error();
+		}
+
+        /**
+         * Get merged plugin settings with defaults.
+         *
+         * @return array
+         */
+        private function get_settings() {
+            $defaults = array(
+                'webhook_url'         => '',
+                'triggering_patterns' => '',
+                'auth_type'           => 'header',
+                'auth_field'          => '',
+                'security_key'        => '',
+            );
+
+            $saved = get_option( 'email_webhook_filter_settings' );
+            return wp_parse_args( is_array( $saved ) ? $saved : array(), $defaults );
         }
 
-        // Prepare the JSON payload.
-        $payload = array(
-            'subject' => $subject,
-            'body'    => $body,
-        );
+        /**
+         * Validate if email subject matches expected subject.
+         *
+         * @param string $subject Subject line.
+         * @return bool
+         */
+        private function is_email( $subject ) {
+            return $subject;
+        }
 
-        // If a security key is provided, add it according to the selected authentication type.
-        if ( ! empty( $security_key ) && ! empty( $auth_field ) ) {
-            if ( 'body' === $auth_type ) {
+        /**
+         * Extract first six-digit code from email body.
+         *
+         * @param string $body Email body.
+         * @return string
+         */
+        private function extract_six_digit_code( $body ) {
+            preg_match_all( '/\b\d{6}\b/', $body, $matches );
+            return isset( $matches[0][0] ) ? $matches[0][0] : '';
+        }
+
+        /**
+         * Send webhook payload.
+         *
+         * @param array $payload  JSON payload.
+         * @param array $settings Plugin settings.
+         * @return bool
+         */
+        private function send_webhook( $payload, $settings ) {
+            $auth_type    = $settings['auth_type'];
+            $auth_field   = $settings['auth_field'];
+            $security_key = $settings['security_key'];
+
+            if ( ! empty( $security_key ) && ! empty( $auth_field ) && 'body' === $auth_type ) {
                 $payload[ $auth_field ] = $security_key;
             }
+
+            $args = array(
+                'body'    => wp_json_encode( $payload ),
+                'headers' => array( 'Content-Type' => 'application/json' ),
+                'timeout' => 5,
+            );
+
+            if ( ! empty( $security_key ) && ! empty( $auth_field ) && 'header' === $auth_type ) {
+                $args['headers'][ $auth_field ] = $security_key;
+            }
+
+            $response = wp_remote_post( $settings['webhook_url'], $args );
+
+            if ( is_wp_error( $response ) ) {
+                if ( defined( 'WP_DEBUG' ) && true === WP_DEBUG ) {
+                    // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+                    error_log( '[EmailWebhookFilter] Webhook error: ' . $response->get_error_message() );
+                }
+                return false;
+            }
+
+            return true;
         }
 
-        // Prepare the request arguments.
-        $args = array(
-            'body'    => json_encode( $payload ),
-            'headers' => array(
-                'Content-Type' => 'application/json',
-            ),
-            'timeout' => 5,
-        );
+        /**
+         * Hook: Check email content and send webhook if it matches.
+         *
+         * @param PHPMailer $phpmailer PHPMailer instance.
+         */
+        public function check_email_and_trigger_webhook( $phpmailer ) {
+            $settings = $this->get_settings();
 
-        // If the authentication type is header, add the header with the security key.
-        if ( ! empty( $security_key ) && ! empty( $auth_field ) && 'header' === $auth_type ) {
-            $args['headers'][ $auth_field ] = $security_key;
+            // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+            $subject_line = isset( $phpmailer->Subject ) ? $phpmailer->Subject : '';
+
+            // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
+            $body_content = isset( $phpmailer->Body ) ? $phpmailer->Body : '';
+
+            if ( ! $this->is_email( $subject_line ) ) {
+                return;
+            }
+
+            $code = $this->extract_six_digit_code( $body_content );
+            if ( empty( $code ) ) {
+                return;
+            }
+
+            $payload = array(
+                'subject' => $subject_line,
+                'code'    => $code,
+            );
+
+            $this->send_webhook( $payload, $settings );
         }
 
-        // Send the webhook request.
-        wp_remote_post( $webhook_url, $args );
+        /**
+         * Render settings page.
+         */
+        public function render_settings_page() {
+            ?>
+            <div class="wrap">
+                <h1><?php esc_html_e( 'Email Webhook Filter Settings', 'email-webhook-filter' ); ?></h1>
+                <form method="post" action="options.php">
+                    <?php
+                    settings_fields( 'email_webhook_filter_settings_group' );
+                    do_settings_sections( 'email-webhook-filter' );
+                    submit_button();
+                    ?>
+                </form>
+            </div>
+            <?php
+        }
+
+        /**
+         * Webhook URL input field.
+         */
+        public function webhook_url_field() {
+            $options     = get_option( 'email_webhook_filter_settings' );
+            $webhook_url = isset( $options['webhook_url'] ) ? $options['webhook_url'] : '';
+            echo '<input type="text" class="regular-text" name="email_webhook_filter_settings[webhook_url]" value="' . esc_attr( $webhook_url ) . '">';
+        }
+
+        /**
+         * Triggering patterns input field.
+         */
+        public function triggering_patterns_field() {
+            $options  = get_option( 'email_webhook_filter_settings' );
+            $patterns = isset( $options['triggering_patterns'] ) ? $options['triggering_patterns'] : '';
+            echo '<textarea name="email_webhook_filter_settings[triggering_patterns]" rows="5" cols="50">' . esc_textarea( $patterns ) . '</textarea>';
+            echo '<p class="description">' . esc_html__( 'Enter one regexp per line.', 'email-webhook-filter' ) . '</p>';
+        }
+
+        /**
+         * Authentication type input field.
+         */
+        public function auth_type_field() {
+            $options     = get_option( 'email_webhook_filter_settings' );
+            $auth_type   = isset( $options['auth_type'] ) ? $options['auth_type'] : 'header';
+            $auth_field  = isset( $options['auth_field'] ) ? $options['auth_field'] : '';
+
+            echo '<select name="email_webhook_filter_settings[auth_type]">';
+            echo '<option value="header"' . selected( $auth_type, 'header', false ) . '>' . esc_html__( 'Header', 'email-webhook-filter' ) . '</option>';
+            echo '<option value="body"' . selected( $auth_type, 'body', false ) . '>' . esc_html__( 'Request body (JSON)', 'email-webhook-filter' ) . '</option>';
+            echo '</select>';
+            echo '&nbsp;';
+            echo '<input type="text" name="email_webhook_filter_settings[auth_field]" placeholder="' . esc_attr__( 'Field Name', 'email-webhook-filter' ) . '" value="' . esc_attr( $auth_field ) . '">';
+        }
+
+        /**
+         * Security key input field.
+         */
+        public function security_key_field() {
+            $options      = get_option( 'email_webhook_filter_settings' );
+            $security_key = isset( $options['security_key'] ) ? $options['security_key'] : '';
+            echo '<input type="text" class="regular-text" name="email_webhook_filter_settings[security_key]" value="' . esc_attr( $security_key ) . '">';
+        }
     }
-}
 
-// Initialize the plugin.
-new Email_Webhook_Filter();
+    new Email_Webhook_Filter();
+}
