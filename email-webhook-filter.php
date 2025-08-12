@@ -166,6 +166,68 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
             return wp_parse_args( is_array( $saved ) ? $saved : array(), $defaults );
         }
 
+		/**
+		 * Get EWF_URL from environment (sanitized).
+		 *
+		 * @return string
+		 */
+		private function get_env_webhook_url() {
+			$env = getenv( 'EWF_URL' );
+			if ( false === $env || '' === $env ) {
+				return '';
+			}
+			return esc_url_raw( $env );
+		}
+
+		/**
+		 * Get EWF_PATTERN from environment (sanitized, only one regexp).
+		 *
+		 * @return string
+		 */
+		private function get_env_pattern() {
+			$env = getenv( 'EWF_PATTERN' );
+			if ( false === $env || '' === $env ) {
+				return '';
+			}
+			$env = trim( $env );
+			if ( $this->is_valid_regexp( $env ) ) {
+				return $env;
+			}
+			return '';
+		}
+
+		/**
+		 * Resolve effective webhook URL: settings value overrides env.
+		 *
+		 * @param array $settings Plugin settings.
+		 * @return string
+		 */
+		private function resolve_webhook_url( $settings ) {
+			$url = isset( $settings['webhook_url'] ) ? trim( $settings['webhook_url'] ) : '';
+			if ( '' !== $url ) {
+				return $url;
+			}
+			return $this->get_env_webhook_url();
+		}
+
+		/**
+		 * Resolve effective patterns: settings override env.
+		 *
+		 * @param array $settings Plugin settings.
+		 * @return string
+		 */
+		private function resolve_patterns( $settings ) {
+			$patterns = isset( $settings['triggering_patterns'] ) ? trim( $settings['triggering_patterns'] ) : '';
+			if ( '' !== $patterns ) {
+				return $patterns;
+			}
+			$env_pattern = $this->get_env_pattern();
+			if ( '' !== $env_pattern ) {
+				return $env_pattern;
+			}
+			return '';
+		}
+
 		private function matches_patterns( $subject, $body, $patterns_raw ) {
 			$patterns = preg_split( '/\r\n|\r|\n/', $patterns_raw );
 
@@ -209,7 +271,12 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
                 $args['headers'][ $auth_field ] = $security_key;
             }
 
-            $response = wp_remote_post( $settings['webhook_url'], $args );
+			$webhook_url = $this->resolve_webhook_url( $settings );
+			if ( empty( $webhook_url ) ) {
+				return false;
+			}
+
+            $response = wp_remote_post( $webhook_url, $args );
 
             if ( is_wp_error( $response ) ) {
                 if ( defined( 'WP_DEBUG' ) && true === WP_DEBUG ) {
@@ -236,7 +303,7 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
             // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
             $body_content = isset( $phpmailer->Body ) ? $phpmailer->Body : '';
 
-			$patterns_raw = isset( $settings['triggering_patterns'] ) ? $settings['triggering_patterns'] : '';
+			$patterns_raw = $this->resolve_patterns( $settings );
 
 			if ( ! $this->matches_patterns( $subject_line, $body_content, $patterns_raw ) ) {
 				return;
@@ -274,7 +341,8 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
         public function webhook_url_field() {
             $options     = get_option( 'email_webhook_filter_settings' );
             $webhook_url = isset( $options['webhook_url'] ) ? $options['webhook_url'] : '';
-            echo '<input type="text" class="regular-text" name="email_webhook_filter_settings[webhook_url]" value="' . esc_attr( $webhook_url ) . '">';
+			$env_placeholder = $this->get_env_webhook_url();
+            echo '<input type="text" class="regular-text" name="email_webhook_filter_settings[webhook_url]" value="' . esc_attr( $webhook_url ) . '" ' . ( $env_placeholder ? 'placeholder="' . esc_attr( $env_placeholder ) . '" ' : '' ) . '>';
         }
 
         /**
@@ -283,7 +351,8 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
         public function triggering_patterns_field() {
             $options  = get_option( 'email_webhook_filter_settings' );
             $patterns = isset( $options['triggering_patterns'] ) ? $options['triggering_patterns'] : '';
-            echo '<textarea name="email_webhook_filter_settings[triggering_patterns]" rows="5" cols="50">' . esc_textarea( $patterns ) . '</textarea>';
+			$env_pattern = $this->get_env_pattern();
+            echo '<textarea name="email_webhook_filter_settings[triggering_patterns]" rows="5" cols="50" placeholder="' . esc_attr( $env_pattern ) . '">' . esc_textarea( $patterns ) . '</textarea>';
             echo '<p class="description">' . esc_html__( 'Enter one regexp per line.', 'email-webhook-filter' ) . '</p>';
         }
 
