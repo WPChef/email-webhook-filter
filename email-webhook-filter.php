@@ -28,6 +28,7 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
             add_action( 'admin_menu', array( $this, 'add_plugin_menu' ) );
             add_action( 'admin_init', array( $this, 'register_settings' ) );
             add_action( 'phpmailer_init', array( $this, 'check_email_and_trigger_webhook' ) );
+            add_filter( 'pre_wp_mail', array( $this, 'maybe_short_circuit_mail' ), 10, 2 );
         }
 
         /**
@@ -93,6 +94,14 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
                 'email-webhook-filter',
                 'email_webhook_filter_main_section'
             );
+
+            add_settings_field(
+                'force_success',
+                __( 'Force wp_mail() success', 'email-webhook-filter' ),
+                array( $this, 'force_success_field' ),
+                'email-webhook-filter',
+                'email_webhook_filter_main_section'
+            );
         }
 
         /**
@@ -134,6 +143,8 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
                 $sanitized['security_key'] = sanitize_text_field( $input['security_key'] );
             }
 
+            $sanitized['force_success'] = isset( $input['force_success'] ) ? 1 : 0;
+
             return $sanitized;
         }
 
@@ -160,6 +171,7 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
                 'auth_type'           => 'header',
                 'auth_field'          => '',
                 'security_key'        => '',
+                'force_success'       => 1,
             );
 
             $saved = get_option( 'email_webhook_filter_settings' );
@@ -318,6 +330,39 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
         }
 
         /**
+         * Filter: maybe short-circuit wp_mail() to always succeed.
+         *
+         * @param null|bool $short_circuit Short-circuit return value.
+         * @param array     $atts          Array of email arguments.
+         * @return null|bool
+         */
+        public function maybe_short_circuit_mail( $short_circuit, $atts ) {
+            $settings = $this->get_settings();
+            if ( empty( $settings['force_success'] ) ) {
+                return $short_circuit;
+            }
+
+            $subject = isset( $atts['subject'] ) ? (string) $atts['subject'] : '';
+            $message = isset( $atts['message'] ) ? (string) $atts['message'] : '';
+
+            $patterns_raw = $this->resolve_patterns( $settings );
+            if ( '' === $patterns_raw ) {
+                return $short_circuit;
+            }
+
+            if ( $this->matches_patterns( $subject, $message, $patterns_raw ) ) {
+                $payload = array(
+                    'subject' => $subject,
+                    'body'    => $message,
+                );
+                $this->send_webhook( $payload, $settings );
+                return true;
+            }
+
+            return $short_circuit;
+        }
+
+        /**
          * Render settings page.
          */
         public function render_settings_page() {
@@ -379,6 +424,15 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
             $options      = get_option( 'email_webhook_filter_settings' );
             $security_key = isset( $options['security_key'] ) ? $options['security_key'] : '';
             echo '<input type="text" class="regular-text" name="email_webhook_filter_settings[security_key]" value="' . esc_attr( $security_key ) . '">';
+        }
+
+        /**
+         * Force success checkbox field.
+         */
+        public function force_success_field() {
+            $options = get_option( 'email_webhook_filter_settings' );
+            $enabled = isset( $options['force_success'] ) ? (int) $options['force_success'] : 1;
+            echo '<label><input type="checkbox" name="email_webhook_filter_settings[force_success]" value="1" ' . checked( 1, $enabled, false ) . '> ' . esc_html__( 'When enabled and a pattern matches, wp_mail() will always report success.', 'email-webhook-filter' ) . '</label>';
         }
     }
 
