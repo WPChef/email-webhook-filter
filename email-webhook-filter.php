@@ -346,9 +346,6 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
             $message = isset( $atts['message'] ) ? (string) $atts['message'] : '';
 
             $patterns_raw = $this->resolve_patterns( $settings );
-            if ( '' === $patterns_raw ) {
-                return $short_circuit;
-            }
 
             if ( $this->matches_patterns( $subject, $message, $patterns_raw ) ) {
                 $payload = array(
@@ -356,10 +353,9 @@ if ( ! class_exists( 'Email_Webhook_Filter', false ) ) {
                     'body'    => $message,
                 );
                 $this->send_webhook( $payload, $settings );
-                return true;
             }
 
-            return $short_circuit;
+            return true;
         }
 
         /**
